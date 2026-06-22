@@ -1,0 +1,303 @@
+<!doctype html>
+{% extends 'base.html' %}
+
+{% block title %}Каталог гитар и музыкальных инструментов{% endblock %}
+
+{% block content %}
+<h1>
+    Каталог товаров
+    {% if current_category %}
+        - {{ current_category.name }}
+    {% endif %}
+</h1>
+
+<!-- реклама -->
+<div id="bannerCarousel" class="carousel slide" data-bs-ride="carousel" data-bs-interval="3000">
+    <div class="carousel-inner">
+        <div class="carousel-item active">
+            <div class="bg-dark text-white text-center py-5 rounded" style="height: 200px;">
+                <h3>🎸 Новое поступление гитар Grass Roots</h3>
+                <p>Успейте приобрести!</p>
+            </div>
+        </div>
+        <div class="carousel-item">
+            <div class="bg-secondary text-white text-center py-5 rounded" style="height: 200px;">
+                <h3>🚚 Бесплатная доставка!</h3>
+                <p>Акция действительна до 30.06</p>
+            </div>
+        </div>
+    </div>
+    <button class="carousel-control-prev" type="button" data-bs-target="#bannerCarousel" data-bs-slide="prev">
+        <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+        <span class="visually-hidden">Предыдущий</span>
+    </button>
+    <button class="carousel-control-next" type="button" data-bs-target="#bannerCarousel" data-bs-slide="next">
+        <span class="carousel-control-next-icon" aria-hidden="true"></span>
+        <span class="visually-hidden">Следующий</span>
+    </button>
+</div>
+
+<div style="height: 20px;"></div>
+
+<div class="row">
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                Фильтры
+            </div>
+            <div class="card-body" id="filters-container">
+                <div class="text-center">Загрузка фильтров...</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-9">
+        <div class="row" id="products-container">
+            <div class="text-center"><div class="spinner-border text-primary" role="status"></div> Загрузка...</div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .product-card {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
+    .product-card .card-body {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+    .product-card .card-text {
+        flex: 1;
+    }
+</style>
+
+<script>
+function getToken() {
+    return localStorage.getItem('access_token');
+}
+
+// загрузка фильтров из бд
+async function loadFilters() {
+    const container = document.getElementById('filters-container');
+    if (!container) return;
+    
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const categoryId = urlParams.get('category');
+        
+        if (!categoryId) {
+            container.innerHTML = '<div class="text-muted">Выберите категорию для фильтрации</div>';
+            return;
+        }
+        
+        let apiUrl = `/api/catalog/filters/?category=${categoryId}`;
+        const response = await fetch(apiUrl);
+        const filters = await response.json();
+        
+        if (filters.length === 0) {
+            container.innerHTML = '<div class="text-muted">Нет доступных фильтров для этой категории</div>';
+            return;
+        }
+        
+        let html = '<form id="filter-form">';
+        filters.forEach(filter => {
+            const attrName = filter.attribute_name;
+            const attrType = filter.attribute_type;
+            const possibleValues = filter.possible_values || [];
+            
+            if (attrType === 'boolean') {
+                html += `
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input filter-input" name="attr_${attrName}" id="filter_${attrName}">
+                        <label class="form-check-label" for="filter_${attrName}">${attrName}</label>
+                    </div>
+                `;
+            } else {
+                let options = '<option value="">Все</option>';
+                possibleValues.forEach(val => {
+                    options += `<option value="${val}">${val}</option>`;
+                });
+                html += `
+                    <div class="mb-3">
+                        <label class="form-label">${attrName}</label>
+                        <select class="form-select filter-input" name="attr_${attrName}">
+                            ${options}
+                        </select>
+                    </div>
+                `;
+            }
+        });
+        html += '<button type="submit" class="btn btn-primary w-100 mt-2">Применить фильтры</button>';
+        html += '<a href="/" class="btn btn-outline-secondary w-100 mt-2">Сбросить фильтры</a>';
+        html += '</form>';
+        container.innerHTML = html;
+        
+        const currentParams = new URLSearchParams(window.location.search);
+        document.querySelectorAll('.filter-input').forEach(input => {
+            const name = input.getAttribute('name');
+            if (currentParams.has(name)) {
+                if (input.type === 'checkbox') {
+                    input.checked = currentParams.get(name) === 'true';
+                } else {
+                    input.value = currentParams.get(name);
+                }
+            }
+        });
+        
+        // обработчик отправки формы
+        const filterForm = document.getElementById('filter-form');
+        if (filterForm) {
+            filterForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const url = new URL(window.location.href);
+                document.querySelectorAll('.filter-input').forEach(input => {
+                    const name = input.getAttribute('name');
+                    let value;
+                    if (input.type === 'checkbox') {
+                        value = input.checked ? 'true' : '';
+                    } else {
+                        value = input.value;
+                    }
+                    if (value && value !== '') {
+                        url.searchParams.set(name, value);
+                    } else {
+                        url.searchParams.delete(name);
+                    }
+                });
+                window.location.href = url.toString();
+            });
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки фильтров:', error);
+        container.innerHTML = '<div class="alert alert-danger">Ошибка загрузки фильтров</div>';
+    }
+}
+
+// загрузка товаров с учётом фильтров
+async function loadProducts() {
+    const container = document.getElementById('products-container');
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const categoryId = urlParams.get('category');
+        const searchQuery = urlParams.get('search');
+        
+        let apiUrl = '/api/catalog/products/';
+        const params = new URLSearchParams();
+        
+        if (categoryId) params.append('category', categoryId);
+        if (searchQuery) params.append('search', searchQuery);
+        
+        for (let [key, value] of urlParams.entries()) {
+            if (key.startsWith('attr_')) {
+                params.append(key, value);
+            }
+        }
+        
+        if (params.toString()) apiUrl += '?' + params.toString();
+        
+        const response = await fetch(apiUrl);
+        const products = await response.json();
+        
+        if (products.length === 0) {
+            container.innerHTML = '<div class="alert alert-info">Товаров нет. Попробуйте изменить фильтры.</div>';
+            return;
+        }
+        
+        container.innerHTML = products.map(product => `
+            <div class="col-md-4 mb-4">
+                <div class="card product-card h-100">
+                    ${product.image ? `<img src="${product.image}" class="card-img-top" alt="${product.name}">` : '<div class="card-img-top bg-light text-center py-5">Нет фото</div>'}
+                    <div class="card-body">
+                        <h5 class="card-title"><a href="/catalog/product/${product.id}/" class="text-decoration-none">${product.name}</a></h5>
+                        <p class="card-text">${product.description?.substring(0, 100) || ''}...</p>
+                        <p class="fw-bold text-primary">${Number(product.price).toLocaleString()} ₽</p>
+                        <button class="btn btn-primary w-100 add-to-cart" data-id="${product.id}">В корзину</button>
+                        <button class="btn btn-success w-100 mt-1 fast-order-btn" data-id="${product.id}" data-name="${product.name}" data-price="${product.price}">⚡ Быстрый заказ</button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+        
+        const token = getToken();
+        if (token) {
+            try {
+                const cartResponse = await fetch('/api/cart/cart-items/', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const cartItems = await cartResponse.json();
+                const productIdsInCart = cartItems.map(item => item.product);
+                
+                document.querySelectorAll('.add-to-cart').forEach(btn => {
+                    const productId = parseInt(btn.getAttribute('data-id'), 10);
+                    if (productIdsInCart.includes(productId)) {
+                        btn.textContent = 'В корзине';
+                        btn.disabled = true;
+                        btn.classList.remove('btn-primary');
+                        btn.classList.add('btn-secondary');
+                    }
+                });
+            } catch (error) {
+                console.error('Ошибка загрузки корзины:', error);
+            }
+        }
+        
+        document.querySelectorAll('.add-to-cart').forEach(btn => {
+            btn.removeEventListener('click', () => {});
+            btn.addEventListener('click', async (e) => {
+                const button = e.currentTarget;
+                const productId = button.getAttribute('data-id');
+                const token = getToken();
+                
+                if (!token) {
+                    alert('Для добавления в корзину необходимо войти в аккаунт');
+                    window.location.href = '/login/';
+                    return;
+                }
+                
+                try {
+                    const response = await fetch('/api/cart/cart-items/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ product: Number(productId), quantity: 1 })
+                    });
+                    
+                    if (response.status === 401) {
+                        alert('Сессия истекла, войдите заново');
+                        localStorage.removeItem('access_token');
+                        window.location.href = '/login/';
+                        return;
+                    }
+                    
+                    if (response.ok) {
+                        button.textContent = 'В корзине';
+                        button.disabled = true;
+                        button.classList.remove('btn-primary');
+                        button.classList.add('btn-secondary');
+                        if (typeof updateCartCount === 'function') updateCartCount();
+                    } else {
+                        const error = await response.json();
+                        alert('Ошибка: ' + (error.error || 'Не удалось добавить товар'));
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Ошибка при добавлении в корзину');
+                }
+            });
+        });
+        
+    } catch (error) {
+        console.error('Ошибка загрузки товаров:', error);
+        container.innerHTML = '<div class="alert alert-danger">Ошибка загрузки товаров</div>';
+    }
+}
+
+loadFilters();
+loadProducts();
+</script>
+{% endblock %}

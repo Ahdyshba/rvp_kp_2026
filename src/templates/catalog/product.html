@@ -1,0 +1,232 @@
+<!doctype html>
+{% extends 'base.html' %}
+
+{% block title %}Товар{% endblock %}
+
+{% block content %}
+<div id="product-container">
+    <div class="text-center"><div class="spinner-border text-primary" role="status"></div> Загрузка...</div>
+</div>
+
+<div class="modal fade" id="reviewModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Оставить отзыв</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="reviewForm">
+                    <div class="mb-3">
+                        <label class="form-label">Оценка</label>
+                        <select class="form-select" id="reviewRating" required>
+                            <option value="5">5 — Отлично</option>
+                            <option value="4">4 — Хорошо</option>
+                            <option value="3">3 — Удовлетворительно</option>
+                            <option value="2">2 — Плохо</option>
+                            <option value="1">1 — Ужасно</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Текст отзыва</label>
+                        <textarea class="form-control" id="reviewText" rows="4" required></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Фото (необязательно)</label>
+                        <input type="file" class="form-control" id="reviewPhoto" accept="image/*">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" id="submitReview">Отправить отзыв</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function getToken() {
+    return localStorage.getItem('access_token');
+}
+
+async function loadProduct() {
+    const container = document.getElementById('product-container');
+    try {
+        const pathParts = window.location.pathname.split('/');
+        const productId = pathParts[pathParts.length - 2];
+        
+        const response = await fetch(`/api/catalog/products/${productId}/`);
+        const product = await response.json();
+        
+        const reviewsResponse = await fetch(`/api/reviews/reviews/?product=${productId}`);
+        const reviews = await reviewsResponse.json();
+        
+        let reviewsHtml = '<h3 class="mt-4">Отзывы</h3>';
+        if (reviews.length === 0) {
+            reviewsHtml += '<p>Пока нет отзывов. Будьте первым!</p>';
+        } else {
+            reviewsHtml += '<div class="list-group">';
+            reviews.forEach(review => {
+                reviewsHtml += `
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <strong>${review.user_username || 'Пользователь'}</strong>
+                            <span>⭐ ${review.rating}</span>
+                        </div>
+                        <p class="mt-2 mb-2">${review.text}</p>`;
+                
+                if (review.photo) {
+                    reviewsHtml += `
+                        <div class="mt-2">
+                            <img src="${review.photo}" class="img-thumbnail" style="max-width: 200px;">
+                        </div>`;
+                }
+                
+                reviewsHtml += `
+                        <div class="mt-2 text-muted small">
+                            ${new Date(review.created_at).toLocaleDateString()}
+                        </div>
+                    </div>
+                `;
+            });
+            reviewsHtml += '</div>';
+        }
+        
+        container.innerHTML = `
+            <div class="row">
+                <div class="col-md-6">
+                    ${product.image ? `<img src="${product.image}" class="img-fluid" alt="${product.name}">` : '<div class="bg-light text-center py-5">Нет фото</div>'}
+                </div>
+                <div class="col-md-6">
+                    <h1>${product.name}</h1>
+                    <p class="lead">${product.description || 'Описание отсутствует'}</p>
+                    <h3 class="text-primary">${Number(product.price).toLocaleString()} ₽</h3>
+                    <button class="btn btn-primary btn-lg add-to-cart" data-id="${product.id}">В корзину</button>
+                    <button class="btn btn-success btn-lg mt-2 fast-order-btn" data-id="${product.id}" data-name="${product.name}" data-price="${product.price}">⚡ Быстрый заказ</button>
+                    <a href="/" class="btn btn-secondary">Назад в каталог</a>
+                </div>
+            </div>
+            ${reviewsHtml}
+            <div class="mt-3">
+                <button class="btn btn-outline-primary" id="openReviewModalBtn">Написать отзыв</button>
+            </div>
+        `;
+        
+        const token = getToken();
+        document.querySelectorAll('.add-to-cart').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const button = e.currentTarget;
+                const productId = button.getAttribute('data-id');
+                const token = getToken();
+                
+                if (!token) {
+                    window.location.href = '/login/';
+                    return;
+                }
+                
+                try {
+                    const response = await fetch('/api/cart/cart-items/', {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json', 
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ product: Number(productId), quantity: 1 })
+                    });
+                    
+                    if (response.ok) {
+                        button.textContent = 'В корзине';
+                        button.disabled = true;
+                        button.classList.remove('btn-primary');
+                        button.classList.add('btn-secondary');
+                        if (typeof updateCartCount === 'function') updateCartCount();
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                }
+            });
+        });
+        
+        if (token) {
+            const cartResponse = await fetch('/api/cart/cart-items/', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const cartItems = await cartResponse.json();
+            const productIdsInCart = cartItems.map(item => item.product);
+            if (productIdsInCart.includes(product.id)) {
+                const btn = document.querySelector('.add-to-cart');
+                if (btn) {
+                    btn.textContent = 'В корзине';
+                    btn.disabled = true;
+                    btn.classList.remove('btn-primary');
+                    btn.classList.add('btn-secondary');
+                }
+            }
+        }
+        
+        document.getElementById('openReviewModalBtn').addEventListener('click', () => {
+            if (!token) {
+                alert('Войдите, чтобы оставить отзыв');
+                window.location.href = '/login/';
+                return;
+            }
+            const modal = new bootstrap.Modal(document.getElementById('reviewModal'));
+            modal.show();
+        });
+        
+    } catch (error) {
+        console.error('Ошибка:', error);
+        container.innerHTML = '<div class="alert alert-danger">Товар не найден</div>';
+    }
+}
+
+document.getElementById('submitReview')?.addEventListener('click', async () => {
+    const token = getToken();
+    if (!token) {
+        alert('Войдите, чтобы оставить отзыв');
+        return;
+    }
+    
+    const productId = window.location.pathname.split('/')[3];
+    const rating = document.getElementById('reviewRating').value;
+    const text = document.getElementById('reviewText').value;
+    const photoFile = document.getElementById('reviewPhoto').files[0];
+    
+    if (!text) {
+        alert('Введите текст отзыва');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('product', productId);
+    formData.append('rating', rating);
+    formData.append('text', text);
+    if (photoFile) {
+        formData.append('photo', photoFile);
+    }
+    
+    try {
+        const response = await fetch('/api/reviews/reviews/', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            body: formData
+        });
+        
+        if (response.ok) {
+            location.reload();
+        } else {
+            const error = await response.json();
+            alert('Ошибка: ' + JSON.stringify(error));
+        }
+    } catch (error) {
+        console.error('Ошибка:', error);
+        alert('Ошибка при отправке отзыва');
+    }
+});
+
+loadProduct();
+</script>
+{% endblock %}

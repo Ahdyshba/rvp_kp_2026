@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+
+{% block title %}Вход{% endblock %}
+
+{% block content %}
+<h2>Вход</h2>
+<form method="post">
+    {% csrf_token %}
+    <div class="mb-3">
+        <label>Имя пользователя</label>
+        <input type="text" name="username" class="form-control" required>
+    </div>
+    <div class="mb-3">
+        <label>Пароль</label>
+        <input type="password" name="password" class="form-control" required>
+    </div>
+    <button type="submit" class="btn btn-primary">Войти</button>
+    <a href="{% url 'register' %}" class="btn btn-link">Регистрация</a>
+</form>
+{% if access_token %}
+<script>
+    localStorage.setItem('access_token', '{{ access_token }}');
+    window.location.href = '/';
+</script>
+{% endif %}
+{% endblock %}

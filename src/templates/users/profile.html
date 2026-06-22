@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+
+{% block title %}Личный кабинет{% endblock %}
+
+{% block content %}
+<h2>Здравствуйте, {{ user.username }}!</h2>
+<p>Ваш email: {{ user.email }}</p>
+<p>Роль: {{ user.get_role_display }}</p>
+<h3 class="mt-4">Ваши заказы</h3>
+<div id="orders-container">Загрузка...</div>
+
+<script>
+function getToken() {
+    return localStorage.getItem('access_token');
+}
+
+async function loadOrders() {
+    const token = getToken();
+    if (!token) return;
+    const container = document.getElementById('orders-container');
+    try {
+        const response = await fetch('/api/orders/orders/', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const orders = await response.json();
+        if (orders.length === 0) {
+            container.innerHTML = '<p>У вас пока нет заказов.</p>';
+            return;
+        }
+        container.innerHTML = orders.map(order => `
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h5>Заказ №${order.id}</h5>
+                    <p>Статус: ${order.status}</p>
+                    <p>Сумма: ${order.total_price} ₽</p>
+                    <p>Адрес: ${order.delivery_address}</p>
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        container.innerHTML = '<p>Ошибка загрузки заказов</p>';
+    }
+}
+loadOrders();
+</script>
+{% endblock %}

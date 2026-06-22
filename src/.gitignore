@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+venv/
+env/
+.venv/
+.env
+
+# Database
+db.sqlite3
+*.db
+
+# Media
+media/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Logs
+*.log
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+structure.txt
+*.jpg
+*.png
+*.jpeg
+
+# Environment variables
+.env

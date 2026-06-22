@@ -1,0 +1,212 @@
+<!doctype html>
+{% extends 'base.html' %}
+
+{% block title %}Корзина{% endblock %}
+
+{% block content %}
+<h2>Корзина</h2>
+<div id="cart-container">Загрузка...</div>
+
+<div class="modal fade" id="checkoutModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Оформление заказа</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="checkoutForm">
+                    <div class="mb-3">
+                        <label for="address" class="form-label">Адрес доставки</label>
+                        <input type="text" class="form-control" id="address" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="phone" class="form-label">Телефон</label>
+                        <input type="tel" class="form-control" id="phone" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" id="confirmCheckout">Оформить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function getToken() {
+    return localStorage.getItem('access_token');
+}
+
+async function loadCart() {
+    const token = getToken();
+
+    try {
+        const response = await fetch('/api/cart/cart-items/', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const items = await response.json();
+        if (items.length === 0) {
+            document.getElementById('cart-container').innerHTML = '<p>Корзина пуста</p>';
+            return;
+        }
+        let total = 0;
+        let html = '<table class="table"><thead><tr><th>Товар</th><th>Цена</th><th>Кол-во</th><th>Сумма</th><th></th></tr></thead><tbody>';
+        for (let item of items) {
+            const product = await fetch(`/api/catalog/products/${item.product}/`).then(r => r.json());
+            const sum = product.price * item.quantity;
+            total += sum;
+            html += `<tr>
+                <td>${product.name}</td>
+                <td>${product.price} ₽</td>
+                <td><input type="number" class="form-control form-control-sm quantity-input" style="width: 80px;" data-id="${item.id}" value="${item.quantity}" min="1"></td>
+                <td class="item-sum" data-id="${item.id}">${sum} ₽</td>
+                <td><button class="btn btn-sm btn-danger" onclick="removeItem(${item.id})">Удалить</button></td>
+            </tr>`;
+        }
+        html += `<tr><td colspan="3"><strong>Итого:</strong></td><td colspan="2"><strong id="total-sum">${total} ₽</strong></td></tr>`;
+        html += '<tr><td colspan="5"><button class="btn btn-success w-100" id="checkoutBtn">Оформить заказ</button></td></tr>';
+        document.getElementById('cart-container').innerHTML = html;
+
+        document.querySelectorAll('.quantity-input').forEach(input => {
+            input.addEventListener('change', async (e) => {
+                const itemId = e.target.dataset.id;
+                const newQuantity = parseInt(e.target.value, 10);
+                if (isNaN(newQuantity) || newQuantity < 1) {
+                    e.target.value = 1;
+                    return;
+                }
+                await updateQuantity(itemId, newQuantity);
+            });
+        });
+
+        document.getElementById('checkoutBtn').addEventListener('click', () => {
+            const modal = new bootstrap.Modal(document.getElementById('checkoutModal'));
+            modal.show();
+        });
+    } catch (error) {
+        document.getElementById('cart-container').innerHTML = '<div class="alert alert-danger">Ошибка загрузки корзины</div>';
+    }
+}
+
+async function updateQuantity(itemId, quantity) {
+    const token = getToken();
+    const response = await fetch(`/api/cart/cart-items/${itemId}/`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ quantity: quantity })
+    });
+    if (response.ok) {
+        const item = await response.json();
+        const productResponse = await fetch(`/api/catalog/products/${item.product}/`);
+        const product = await productResponse.json();
+        const newSum = product.price * item.quantity;
+        const sumCell = document.querySelector(`.item-sum[data-id="${itemId}"]`);
+        if (sumCell) sumCell.textContent = `${newSum} ₽`;
+        
+        let total = 0;
+        const rows = document.querySelectorAll('.quantity-input');
+        for (let input of rows) {
+            const id = input.dataset.id;
+            const qty = parseInt(input.value, 10);
+            const prodResp = await fetch(`/api/catalog/products/${await getProductIdByItemId(id)}/`);
+            const prod = await prodResp.json();
+            total += prod.price * qty;
+        }
+        document.getElementById('total-sum').textContent = `${total} ₽`;
+        
+        if (typeof updateCartCount === 'function') updateCartCount();
+    } else {
+        alert('Ошибка обновления количества');
+        loadCart();
+    }
+}
+
+async function getProductIdByItemId(itemId) {
+    const token = getToken();
+    const response = await fetch(`/api/cart/cart-items/${itemId}/`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const item = await response.json();
+    return item.product;
+}
+
+async function removeItem(itemId) {
+    const token = getToken();
+    await fetch(`/api/cart/cart-items/${itemId}/`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+    });
+    loadCart();
+    if (typeof updateCartCount === 'function') updateCartCount();
+}
+
+document.getElementById('confirmCheckout')?.addEventListener('click', async () => {
+    const address = document.getElementById('address').value;
+    const phone = document.getElementById('phone').value;
+    if (!address || !phone) {
+        alert('Заполните все поля');
+        return;
+    }
+
+    const token = getToken();
+    
+    if (!token) {
+        alert('Для оформления заказа необходимо войти или зарегистрироваться');
+        window.location.href = '/login/';
+        return;
+    }
+    
+    try {
+        const itemsResponse = await fetch('/api/cart/cart-items/', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const items = await itemsResponse.json();
+        
+        if (items.length === 0) {
+            alert('Корзина пуста');
+            return;
+        }
+
+        let total = 0;
+        for (let item of items) {
+            const productResponse = await fetch(`/api/catalog/products/${item.product}/`);
+            const product = await productResponse.json();
+            total += product.price * item.quantity;
+        }
+
+        const orderResponse = await fetch('/api/orders/orders/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                total_price: total,
+                delivery_address: address,
+                phone: phone
+            })
+        });
+        
+        if (!orderResponse.ok) throw new Error('Ошибка создания заказа');
+
+        for (let item of items) {
+            await fetch(`/api/cart/cart-items/${item.id}/`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+        }
+
+        alert('Заказ оформлен!');
+        if (typeof updateCartCount === 'function') updateCartCount();
+        window.location.href = '/profile/';
+    } catch (error) {
+        console.error(error);
+        alert('Ошибка при оформлении заказа');
+    }
+});
+
+loadCart();
+</script>
+{% endblock %}
