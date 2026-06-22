@@ -7,3 +7,5 @@ django-cors-headers>=4.0
 django-filter>=25.0
 django-mptt>=0.16
 Pillow>=10.0
+gunicorn
+whitenoise
